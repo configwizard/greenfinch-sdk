@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/configwizard/greenfinch-sdk/pkg/config"
 	gspool "github.com/configwizard/greenfinch-sdk/pkg/pool"
 	"github.com/configwizard/greenfinch-sdk/pkg/wallet"
 	"github.com/nspcc-dev/neofs-sdk-go/pool"
@@ -15,7 +16,7 @@ import (
 )
 
 var (
-	walletPath = flag.String("wallets", "", "path to JSON wallets file")
+	walletPath = flag.String("wallet", "", "path to JSON wallets file")
 	walletAddr = flag.String("address", "", "wallets address [optional]")
 	createWallet = flag.Bool("create", false, "create a wallets")
 	password = flag.String("password", "", "wallet password")
@@ -55,9 +56,11 @@ func main() {
 	var prm pool.PrmContainerList
 	prm.SetOwnerID(userID)
 
-	pl, err := gspool.GetPool(ctx, key)
+	fmt.Println("about to retrieve pool")
+	config := config.ReadConfig()
+	pl, err := gspool.GetPool(ctx, key, config.Peers)
 	if err != nil {
-		fmt.Errorf("%w", err)
+		fmt.Errorf("error retrieving pool %w", err)
 	}
 
 	r, err := pl.ListContainers(ctx, prm)

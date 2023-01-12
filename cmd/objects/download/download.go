@@ -7,17 +7,17 @@ import (
 	"flag"
 	"fmt"
 	gspool "github.com/configwizard/greenfinch-sdk/pkg/pool"
+	"github.com/configwizard/greenfinch-sdk/pkg/tokens"
 	"github.com/configwizard/greenfinch-sdk/pkg/wallet"
+	"github.com/nspcc-dev/neo-go/pkg/crypto/keys"
 	apistatus "github.com/nspcc-dev/neofs-sdk-go/client/status"
+	"github.com/nspcc-dev/neofs-sdk-go/eacl"
 	"github.com/nspcc-dev/neofs-sdk-go/session"
 	"github.com/nspcc-dev/neofs-sdk-go/user"
 	"io/ioutil"
 	"log"
 	"os"
 
-	//"github.com/nspcc-dev/neofs-http-gw/response"
-	//"github.com/nspcc-dev/neofs-http-gw/utils"
-	"github.com/nspcc-dev/neofs-sdk-go/bearer"
 	//"github.com/nspcc-dev/neofs-sdk-go/client"
 	cid "github.com/nspcc-dev/neofs-sdk-go/container/id"
 	"github.com/nspcc-dev/neofs-sdk-go/object"
@@ -54,7 +54,7 @@ func main() {
 
 	ctx := context.Background()
 	var (
-		walletPath   = flag.String("wallets", "", "path to JSON wallets file")
+		walletPath   = flag.String("wallet", "", "path to JSON wallets file")
 		walletAddr   = flag.String("address", "", "wallets address [optional]")
 		createWallet = flag.Bool("create", false, "create a wallets")
 		password     = flag.String("password", "", "wallet password")
@@ -106,8 +106,18 @@ func main() {
 	prmGet.SetAddress(addr)
 
 
-	bt := new(bearer.Token)
-	var sc = new(session.Object) //what is session.Object vs session.Contaner vs session.Token?
+	//this doesn't feel correct??
+	pKey := &keys.PrivateKey{PrivateKey: key}
+
+	bt, err := tokens.BuildBearerToken(pKey, &eacl.Table{}, 500, 500, 500, pKey.PublicKey())
+	if err != nil {
+		log.Fatal("error creating bearer token to download a object")
+	}
+	//todo: how do you attach a new session to a session Container?
+	sc, err := tokens.BuildObjectSessionToken(pKey, 500, 500, 500, cid.ID{}, session.VerbObjectDelete, *pKey.PublicKey())
+	if err != nil {
+		log.Fatal("error creating session token to download a object")
+	}
 
 	if bt != nil {
 		prmGet.UseBearer(*bt)

@@ -5,27 +5,30 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/configwizard/greenfinch-sdk/pkg/config"
 	gspool "github.com/configwizard/greenfinch-sdk/pkg/pool"
+	"github.com/configwizard/greenfinch-sdk/pkg/tokens"
 	"github.com/configwizard/greenfinch-sdk/pkg/wallet"
-	"github.com/nspcc-dev/neofs-sdk-go/bearer"
+	"github.com/nspcc-dev/neo-go/pkg/crypto/keys"
 	cid "github.com/nspcc-dev/neofs-sdk-go/container/id"
+	"github.com/nspcc-dev/neofs-sdk-go/eacl"
 	"github.com/nspcc-dev/neofs-sdk-go/object"
 	oid "github.com/nspcc-dev/neofs-sdk-go/object/id"
 	"github.com/nspcc-dev/neofs-sdk-go/pool"
-	"github.com/nspcc-dev/neofs-sdk-go/session"
 	"io/ioutil"
 	"log"
 	"os"
 )
 
 var (
-	walletPath   = flag.String("wallets", "", "path to JSON wallets file")
+	walletPath   = flag.String("wallet", "", "path to JSON wallets file")
 	walletAddr   = flag.String("address", "", "wallets address [optional]")
 	createWallet = flag.Bool("create", false, "create a wallets")
 	password     = flag.String("password", "", "wallet password")
 	containerID  = flag.String("container", "", "specify the container")
 )
 
+//see here for search by attribute vs search by address https://github.com/nspcc-dev/neofs-http-gw/blob/master/downloader/download.go#L340
 func main() {
 	ctx := context.Background()
 
@@ -50,10 +53,10 @@ func main() {
 	if err != nil {
 		log.Fatal("can't read credentials:", err)
 	}
-
-	pl, err := gspool.GetPool(ctx, key)
+	config := config.ReadConfig()
+	pl, err := gspool.GetPool(ctx, key, config.Peers)
 	if err != nil {
-		fmt.Errorf("%w", err)
+		fmt.Errorf("error retrieving pool %w", err)
 	}
 
 	cnrID := cid.ID{}
@@ -61,14 +64,24 @@ func main() {
 		log.Fatal("can't create container ID:", err)
 	}
 
-	var bt = new(bearer.Token)
-	var sc = new(session.Object) //what is session.Object vs session.Contaner vs session.Token?
-	//and what do we need to do to a session object to 'validate' the request
+	//this doesn't feel correct??
+	pKey := &keys.PrivateKey{PrivateKey: key}
+	target := eacl.Target{}
+	target.SetRole(eacl.RoleUser)
+	target.SetBinaryKeys([][]byte{pKey.Bytes()})
+	table, err := tokens.AllowKeyPutRead(cnrID, target)
+	if err != nil {
+		log.Fatal("error retrieving table ", err)
+	}
+	iAt, exp, err := gspool.TokenExpiryValue(ctx, pl, 100)
+	bt, err := tokens.BuildBearerToken(pKey, &table, iAt, iAt, exp, pKey.PublicKey())
+	if err != nil {
+		log.Fatal("error creating bearer token to upload object")
+	}
+
 	prms := pool.PrmObjectSearch{}
-	if bt != nil {
+	if bt != nil{
 		prms.UseBearer(*bt)
-	} else if sc != nil{
-		prms.UseSession(*sc)
 	} else {
 		prms.UseKey(&key)
 	}
@@ -77,16 +90,17 @@ func main() {
 
 	filter := object.SearchFilters{}
 	filter.AddRootFilter()
-
 	prms.SetFilters(filter)
 	objects, err := pl.SearchObjects(ctx, prms)
 	if err != nil {
 		return
 	}
 	var list []oid.ID
-	err = objects.Iterate(func(id oid.ID) bool {
+	if err = objects.Iterate(func(id oid.ID) bool {
 		list = append(list, id)
 		return false
-	})
-	fmt.Printf("%+v %s\r\n", list, err)
+	}); err != nil {
+		log.Fatalf("error listing objects %s\r\n", err)
+	}
+	fmt.Printf("list objects %+v\r\n", list)
 }

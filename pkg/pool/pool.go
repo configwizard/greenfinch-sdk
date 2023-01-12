@@ -3,11 +3,16 @@ package pool
 import (
 	"context"
 	"crypto/ecdsa"
+	"github.com/configwizard/greenfinch-sdk/pkg/config"
 	"github.com/nspcc-dev/neofs-sdk-go/pool"
 	"time"
 )
 
-
+func fetchPeers() []pool.NodeParam {
+	var nodes []pool.NodeParam
+	//where can i get the nodes from??
+	return nodes
+}
 /*
 questions:
 1. do i need to provide the URLs for connections in the pool
@@ -15,10 +20,12 @@ questions:
 3. Can a pool be created without knowing the private key (wallet connect)?
 	- if not, do I think use a client? I cant work out how to make the requests (put/get/delte) on a client
  */
-func GetPool(ctx context.Context, key ecdsa.PrivateKey) (*pool.Pool, error) {
+func GetPool(ctx context.Context, key ecdsa.PrivateKey, peers map[string]config.Peer) (*pool.Pool, error) {
 	var prm pool.InitParameters
 
-	prm.AddNode() //how do I add nodes? Can this happen automatically?
+	for _, peer := range peers {
+		prm.AddNode(pool.NewNodeParam(peer.Priority, peer.Address, float64(peer.Weight)))
+	}
 
 	prm.SetNodeDialTimeout(1 * time.Minute)
 
@@ -30,7 +37,7 @@ func GetPool(ctx context.Context, key ecdsa.PrivateKey) (*pool.Pool, error) {
 
 	prm.SetErrorThreshold(1)
 	prm.SetKey(&key)
-	//does this need setting or does this have a default?
+	//todo does this need setting or does this have a default?
 	//prm.SetSessionExpirationDuration(10)
 	p, err := pool.NewPool(prm)
 	if err != nil {
@@ -42,4 +49,14 @@ func GetPool(ctx context.Context, key ecdsa.PrivateKey) (*pool.Pool, error) {
 	}
 
 	return p, nil
+}
+
+func TokenExpiryValue(ctx context.Context, pl *pool.Pool, roughEpochs uint64) (uint64, uint64, error) {
+	info, err := pl.NetworkInfo(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+	currentEpoch := info.CurrentEpoch()
+	expire := currentEpoch + roughEpochs // valid for 10 epochs (~ 10 hours)
+	return currentEpoch, expire, nil
 }

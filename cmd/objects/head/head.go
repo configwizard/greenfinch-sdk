@@ -6,18 +6,18 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/configwizard/greenfinch-sdk/pkg/config"
 	gspool "github.com/configwizard/greenfinch-sdk/pkg/pool"
+	"github.com/configwizard/greenfinch-sdk/pkg/tokens"
 	"github.com/configwizard/greenfinch-sdk/pkg/wallet"
+	"github.com/nspcc-dev/neo-go/pkg/crypto/keys"
 	apistatus "github.com/nspcc-dev/neofs-sdk-go/client/status"
-	"github.com/nspcc-dev/neofs-sdk-go/session"
+	"github.com/nspcc-dev/neofs-sdk-go/eacl"
 	"github.com/nspcc-dev/neofs-sdk-go/user"
 	"io/ioutil"
 	"log"
 	"os"
 
-	//"github.com/nspcc-dev/neofs-http-gw/response"
-	//"github.com/nspcc-dev/neofs-http-gw/utils"
-	"github.com/nspcc-dev/neofs-sdk-go/bearer"
 	//"github.com/nspcc-dev/neofs-sdk-go/client"
 	cid "github.com/nspcc-dev/neofs-sdk-go/container/id"
 	"github.com/nspcc-dev/neofs-sdk-go/object"
@@ -54,7 +54,7 @@ func main() {
 
 	ctx := context.Background()
 	var (
-		walletPath   = flag.String("wallets", "", "path to JSON wallets file")
+		walletPath   = flag.String("wallet", "", "path to JSON wallets file")
 		walletAddr   = flag.String("address", "", "wallets address [optional]")
 		createWallet = flag.Bool("create", false, "create a wallets")
 		password     = flag.String("password", "", "wallet password")
@@ -102,39 +102,37 @@ func main() {
 	addr.SetContainer(cnrID)
 	addr.SetObject(objID)
 
-	var prmGet pool.PrmObjectGet
-	prmGet.SetAddress(addr)
-
-	var sc = new(session.Object) //what is session.Object vs session.Contaner vs session.Token?
-	bt := new(bearer.Token)
-
-	if bt != nil {
-		prmGet.UseBearer(*bt)
-	} else {
-		prmGet.UseKey(&key)
-	}
-
-	var prm pool.PrmObjectGet
-	prm.SetAddress(addr)
-	prm.UseBearer(*bt)
-
-	pl, err := gspool.GetPool(ctx, key)
-	if err != nil {
-		fmt.Errorf("%w", err)
-	}
-	//what is the conditional statement checking here https://github.com/nspcc-dev/neofs-s3-gw/blob/50d85dc7edabe6a753c346c388bf18bf9134cd90/internal/neofs/neofs.go#L324
-
 	var prmHead pool.PrmObjectHead
 	prmHead.SetAddress(addr)
 
+	//this doesn't feel correct??
+	pKey := &keys.PrivateKey{PrivateKey: key}
+
+	config := config.ReadConfig()
+	pl, err := gspool.GetPool(ctx, key, config.Peers)
+	if err != nil {
+		fmt.Errorf("error retrieving pool %w", err)
+	}
+
+
+	target := eacl.Target{}
+	target.SetRole(eacl.RoleUser)
+	target.SetBinaryKeys([][]byte{pKey.Bytes()})
+	table, err := tokens.AllowKeyPutRead(cnrID, target)
+	if err != nil {
+		log.Fatal("error retrieving table ", err)
+	}
+	iAt, exp, err := gspool.TokenExpiryValue(ctx, pl, 100)
+	bt, err := tokens.BuildBearerToken(pKey, &table, iAt, iAt, exp, pKey.PublicKey())
+	if err != nil {
+		log.Fatal("error creating bearer token to upload object")
+	}
 	if bt != nil {
+		fmt.Println("using bearer token")
 		prmHead.UseBearer(*bt)
-	} else if sc != nil {
-		prmHead.UseSession(*sc)
 	} else {
 		prmHead.UseKey(&key)
 	}
-
 	hdr, err := pl.HeadObject(ctx, prmHead)
 	if err != nil {
 		if reason, ok := isErrAccessDenied(err); ok {
@@ -156,7 +154,7 @@ func main() {
 		}
 	}
 
-	fmt.Printf("%+v\r\n", hdr.Payload())
+	fmt.Printf("%+v\r\n", hdr.PayloadSize())
 
 
 }

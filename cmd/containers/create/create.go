@@ -5,10 +5,14 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/configwizard/greenfinch-sdk/pkg/config"
 	gspool "github.com/configwizard/greenfinch-sdk/pkg/pool"
+	"github.com/configwizard/greenfinch-sdk/pkg/tokens"
 	"github.com/configwizard/greenfinch-sdk/pkg/wallet"
+	"github.com/nspcc-dev/neo-go/pkg/crypto/keys"
 	"github.com/nspcc-dev/neofs-sdk-go/container"
 	"github.com/nspcc-dev/neofs-sdk-go/container/acl"
+	cid "github.com/nspcc-dev/neofs-sdk-go/container/id"
 	"github.com/nspcc-dev/neofs-sdk-go/netmap"
 	"github.com/nspcc-dev/neofs-sdk-go/pool"
 	"github.com/nspcc-dev/neofs-sdk-go/session"
@@ -20,12 +24,14 @@ import (
 )
 
 var (
-	walletPath = flag.String("wallets", "", "path to JSON wallets file")
+	walletPath = flag.String("wallet", "", "path to JSON wallets file")
 	walletAddr = flag.String("address", "", "wallets address [optional]")
 	createWallet = flag.Bool("create", false, "create a wallets")
 	password = flag.String("password", "", "wallet password")
 
 )
+
+//integration tests here for reference https://github.com/nspcc-dev/neofs-http-gw/blob/278376643a46db50d6e04cc73d853f30fc1f3708/integration_test.go
 
 func main() {
 	ctx := context.Background()
@@ -59,8 +65,9 @@ func main() {
 	userID := user.ID{}
 	user.IDFromKey(&userID, key.PublicKey)
 
+	//this doesn't feel correct??
+	pKey := &keys.PrivateKey{PrivateKey: key}
 	//todo: how do you attach a new session to a session Container?
-	sc := new(session.Container) //new session container for container actions
 
 	placementPolicy := `REP 2 IN X 
 	CBF 2
@@ -82,20 +89,23 @@ func main() {
 
 	// todo: what is the difference between domain name and container name??
 	var d container.Domain
-	d.SetName("[domain] todo - extract this as a variable")
+	d.SetName("domain-name")
 
 	container.WriteDomain(&cnr, d)
-	container.SetName(&cnr, "[container] todo - extract this as a variable")
+	container.SetName(&cnr, "container-name")
 
 	for k, v := range containerAttributes {
 		cnr.SetAttribute(k, v)
 	}
 
-	pl, err := gspool.GetPool(ctx, key)
+	fmt.Println("about to retrieve pool")
+	config := config.ReadConfig()
+	pl, err := gspool.GetPool(ctx, key, config.Peers)
 	if err != nil {
-		fmt.Errorf("%w", err)
+		fmt.Errorf("error retrieving pool %w", err)
 	}
 
+	fmt.Println("pool retrieved")
 	if err := pool.SyncContainerWithNetwork(ctx, &cnr, pl); err != nil {
 		fmt.Errorf("sync container with the network state: %w", err)
 		return
@@ -104,17 +114,24 @@ func main() {
 	var prmPut pool.PrmContainerPut
 	prmPut.SetContainer(cnr)
 
+	iAt, exp, err := gspool.TokenExpiryValue(ctx, pl, 100)
+	sc, err := tokens.BuildContainerSessionToken(pKey, iAt, iAt, exp, cid.ID{}, session.VerbContainerPut, *pKey.PublicKey())
+	if err != nil {
+		log.Fatal("error creating session token to create a container")
+	}
 	if sc != nil {
 		prmPut.WithinSession(*sc)
 	} else {
 		//todo: what about just providing a key or a bearer token?
 	}
 
+	fmt.Println("about to put container")
 	// send request to save the container
 	idCnr, err := pl.PutContainer(ctx, prmPut) //see SetWaitParams to change wait times
 	if err != nil {
-		fmt.Errorf("save container via connection pool: %w", err)
+		fmt.Println("save container via connection pool: %w", err)
 		return
 	}
+	fmt.Println("container putted")
 	fmt.Println("container created ", idCnr)
 }

@@ -6,14 +6,16 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/configwizard/greenfinch-sdk/pkg/config"
 	gspool "github.com/configwizard/greenfinch-sdk/pkg/pool"
+	"github.com/configwizard/greenfinch-sdk/pkg/tokens"
 	"github.com/configwizard/greenfinch-sdk/pkg/wallet"
-	"github.com/nspcc-dev/neofs-sdk-go/bearer"
+	"github.com/nspcc-dev/neo-go/pkg/crypto/keys"
 	apistatus "github.com/nspcc-dev/neofs-sdk-go/client/status"
 	cid "github.com/nspcc-dev/neofs-sdk-go/container/id"
+	"github.com/nspcc-dev/neofs-sdk-go/eacl"
 	oid "github.com/nspcc-dev/neofs-sdk-go/object/id"
 	"github.com/nspcc-dev/neofs-sdk-go/pool"
-	"github.com/nspcc-dev/neofs-sdk-go/session"
 	"github.com/nspcc-dev/neofs-sdk-go/user"
 	"io/ioutil"
 	"log"
@@ -37,7 +39,7 @@ func isErrAccessDenied(err error) (string, bool) {
 }
 
 var (
-	walletPath = flag.String("wallets", "", "path to JSON wallets file")
+	walletPath = flag.String("wallet", "", "path to JSON wallets file")
 	walletAddr = flag.String("address", "", "wallets address [optional]")
 	createWallet = flag.Bool("create", false, "create a wallets")
 	password = flag.String("password", "", "wallet password")
@@ -83,8 +85,16 @@ func main() {
 		fmt.Println("wrong object id", err)
 		return
 	}
-	var bt = new(bearer.Token)
-	var sc = new(session.Object) //what is session.Object vs session.Contaner vs session.Token?
+	//this doesn't feel correct??
+	pKey := &keys.PrivateKey{PrivateKey: key}
+
+	target := eacl.Target{}
+	target.SetRole(eacl.RoleUser)
+	target.SetBinaryKeys([][]byte{pKey.Bytes()})
+	table, err := tokens.AllowDelete(cnrID, target)
+	if err != nil {
+		log.Fatal("error retrieving table ", err)
+	}
 
 	var addr oid.Address
 	addr.SetContainer(cnrID)
@@ -93,19 +103,24 @@ func main() {
 	var prmDelete pool.PrmObjectDelete
 	prmDelete.SetAddress(addr)
 
+	config := config.ReadConfig()
+	pl, err := gspool.GetPool(ctx, key, config.Peers)
+	if err != nil {
+		fmt.Errorf("error retrieving pool %w", err)
+	}
+
+	iAt, exp, err := gspool.TokenExpiryValue(ctx, pl, 100)
+	bt, err := tokens.BuildBearerToken(pKey, &table, iAt, iAt, exp, pKey.PublicKey())
+	if err != nil {
+		log.Fatal("error creating bearer token to upload object")
+	}
+
 	if bt != nil {
 		prmDelete.UseBearer(*bt)
-	} else if sc != nil {
-		prmDelete.UseSession(*sc)
 	} else {
 		prmDelete.UseKey(&key)
 	}
 
-	//what is the conditional statement checking here https://github.com/nspcc-dev/neofs-s3-gw/blob/50d85dc7edabe6a753c346c388bf18bf9134cd90/internal/neofs/neofs.go#L324
-	pl, err := gspool.GetPool(ctx, key)
-	if err != nil {
-		fmt.Errorf("%w", err)
-	}
 	//do we need to 'dial' the pool
 	if err := pl.DeleteObject(ctx, prmDelete); err != nil {
 		reason, ok := isErrAccessDenied(err)

@@ -7,12 +7,9 @@ import (
 	"fmt"
 	"github.com/configwizard/greenfinch-sdk/pkg/config"
 	gspool "github.com/configwizard/greenfinch-sdk/pkg/pool"
-	"github.com/configwizard/greenfinch-sdk/pkg/tokens"
 	"github.com/configwizard/greenfinch-sdk/pkg/wallet"
-	"github.com/nspcc-dev/neo-go/pkg/crypto/keys"
 	cid "github.com/nspcc-dev/neofs-sdk-go/container/id"
 	"github.com/nspcc-dev/neofs-sdk-go/pool"
-	"github.com/nspcc-dev/neofs-sdk-go/session"
 	"github.com/nspcc-dev/neofs-sdk-go/user"
 	"io/ioutil"
 	"log"
@@ -26,6 +23,8 @@ var (
 	password = flag.String("password", "", "wallet password")
 	containerID = flag.String("container", "", "specify the container")
 )
+
+//integration tests here for reference https://github.com/nspcc-dev/neofs-http-gw/blob/278376643a46db50d6e04cc73d853f30fc1f3708/integration_test.go
 
 func main() {
 	ctx := context.Background()
@@ -46,12 +45,6 @@ func main() {
 		log.Printf("created new wallets\r\n%+v\r\n", file)
 		os.Exit(0)
 	}
-
-	cnrID := cid.ID{}
-	if err := cnrID.DecodeString(*containerID); err != nil {
-		log.Fatal("couldn't decode containerID")
-	}
-
 	// First obtain client credentials: private key of request owner
 	key, err := wallet.GetCredentialsFromPath(*walletPath, *walletAddr, *password)
 	if err != nil {
@@ -63,28 +56,25 @@ func main() {
 	userID := user.ID{}
 	user.IDFromKey(&userID, key.PublicKey)
 
-	//todo: how do you attach a new session to a session Container?
-	//this doesn't feel correct??
-	pKey := &keys.PrivateKey{PrivateKey: key}
+	fmt.Println("about to retrieve pool")
 	config := config.ReadConfig()
 	pl, err := gspool.GetPool(ctx, key, config.Peers)
 	if err != nil {
-		fmt.Errorf("%w", err)
+		fmt.Errorf("error retrieving pool %w", err)
 	}
 
-	iAt, exp, err := gspool.TokenExpiryValue(ctx, pl, 100)
-	sc, err := tokens.BuildContainerSessionToken(pKey, iAt, iAt, exp, cnrID, session.VerbContainerDelete, *pKey.PublicKey())
+	cnrID := cid.ID{}
+	cnrID.DecodeString(*containerID)
+	var prmGet pool.PrmContainerGet
+	prmGet.SetContainerID(cnrID)
+
+	fmt.Println("about to get container")
+	// send request to save the container
+	cnr, err := pl.GetContainer(ctx, prmGet) //see SetWaitParams to change wait times
 	if err != nil {
-		log.Fatal("error creating session token to create a container")
+		fmt.Println("save container via connection pool: %w", err)
+		return
 	}
-	var prm pool.PrmContainerDelete
-	prm.SetContainerID(cnrID)
-
-	if sc != nil {
-		prm.SetSessionToken(*sc)
-	}
-	if err := pl.DeleteContainer(ctx, prm); err != nil {
-		fmt.Errorf("delete container via connection pool: %w", err)
-	}
-	fmt.Println("deleted container", *containerID)
+	byteData, err := cnr.MarshalJSON()
+	fmt.Print("container retreived %+v -- %s\r\n", string(byteData), err)
 }

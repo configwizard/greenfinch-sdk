@@ -7,14 +7,16 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/configwizard/greenfinch-sdk/pkg/config"
 	gspool "github.com/configwizard/greenfinch-sdk/pkg/pool"
+	"github.com/configwizard/greenfinch-sdk/pkg/tokens"
 	"github.com/configwizard/greenfinch-sdk/pkg/wallet"
-	"github.com/nspcc-dev/neofs-sdk-go/bearer"
+	"github.com/nspcc-dev/neo-go/pkg/crypto/keys"
 	apistatus "github.com/nspcc-dev/neofs-sdk-go/client/status"
 	cid "github.com/nspcc-dev/neofs-sdk-go/container/id"
+	"github.com/nspcc-dev/neofs-sdk-go/eacl"
 	"github.com/nspcc-dev/neofs-sdk-go/object"
 	"github.com/nspcc-dev/neofs-sdk-go/pool"
-	"github.com/nspcc-dev/neofs-sdk-go/session"
 	"github.com/nspcc-dev/neofs-sdk-go/user"
 	"io/ioutil"
 	"log"
@@ -41,7 +43,7 @@ func isErrAccessDenied(err error) (string, bool) {
 
 
 var (
-	walletPath = flag.String("wallets", "", "path to JSON wallets file")
+	walletPath = flag.String("wallet", "", "path to JSON wallets file")
 	walletAddr = flag.String("address", "", "wallets address [optional]")
 	createWallet = flag.Bool("create", false, "create a wallets")
 	password = flag.String("password", "", "wallet password")
@@ -81,8 +83,9 @@ func main() {
 	if err := cnrID.DecodeString(*containerID); err != nil {
 		log.Fatal("couldn't decode containerID")
 	}
-	fn := "object-filename.ppx"
+	fn := "upload.gif"
 
+	//expiration epoch https://github.com/nspcc-dev/neofs-s3-gw/blob/master/internal/neofs/neofs.go#L542
 	var filtered = make(map[string]string)
 	attributes := make([]object.Attribute, 0, len(filtered))
 	// prepares attributes from filtered headers
@@ -92,7 +95,6 @@ func main() {
 		attribute.SetValue(val)
 		attributes = append(attributes, *attribute)
 	}
-	// sets FileName attribute if it wasn't set from header
 	if _, ok := filtered[object.AttributeFileName]; !ok {
 		filename := object.NewAttribute()
 		filename.SetKey(object.AttributeFileName)
@@ -105,8 +107,10 @@ func main() {
 		timestamp.SetValue(strconv.FormatInt(time.Now().Unix(), 10))
 		attributes = append(attributes, *timestamp)
 	}
-	var bt = new(bearer.Token)
-	var sc = new(session.Object) //what is session.Object vs session.Contaner vs session.Token?
+	//this doesn't feel correct??
+	pKey := &keys.PrivateKey{PrivateKey: key}
+
+	//bt = nil
 	//todo set the bearer token properties to upload this object
 	obj := object.New()
 	obj.SetContainerID(cnrID)
@@ -118,30 +122,41 @@ func main() {
 
 	obj.SetPayloadSize(uint64(len(data)))
 
+
+	config := config.ReadConfig()
+	pl, err := gspool.GetPool(ctx, key, config.Peers)
+	if err != nil {
+		fmt.Errorf("error retrieving pool %w", err)
+	}
+
+	target := eacl.Target{}
+	target.SetRole(eacl.RoleUser)
+	target.SetBinaryKeys([][]byte{pKey.Bytes()})
+	table, err := tokens.AllowKeyPutRead(cnrID, target)
+	if err != nil {
+		log.Fatal("error retrieving table ", err)
+	}
+	iAt, exp, err := gspool.TokenExpiryValue(ctx, pl, 100)
+	bt, err := tokens.BuildBearerToken(pKey, &table, iAt, iAt, exp, pKey.PublicKey())
+	if err != nil {
+		log.Fatal("error creating bearer token to upload object")
+	}
 	var prm pool.PrmObjectPut
 	prm.SetHeader(*obj)
 	prm.SetPayload(reader)
 	if bt != nil {
+		fmt.Println("using bearer token")
 		prm.UseBearer(*bt)
-	} else if sc != nil {
-		prm.UseSession(*sc)
 	} else {
 		prm.UseKey(&key)
 	}
-
-	pl, err := gspool.GetPool(ctx, key)
-	if err != nil {
-		fmt.Errorf("%w", err)
-	}
-	//todo: pool and bearer token??
-
 	if idObj, err := pl.PutObject(ctx, prm); err != nil {
 		reason, ok := isErrAccessDenied(err)
 		if ok {
 			fmt.Printf("%w: %s\r\n", err, reason)
 			return
 		}
-		fmt.Errorf("save object via connection pool: %w", err)
+		fmt.Println("save object via connection pool: %s", err)
 		return
 	} else {
 		fmt.Println("created object ", idObj, " in container ", cnrID)

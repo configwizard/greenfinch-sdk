@@ -6,7 +6,9 @@ import (
 	"flag"
 	"fmt"
 	gspool "github.com/configwizard/greenfinch-sdk/pkg/pool"
+	"github.com/configwizard/greenfinch-sdk/pkg/tokens"
 	"github.com/configwizard/greenfinch-sdk/pkg/wallet"
+	"github.com/nspcc-dev/neo-go/pkg/crypto/keys"
 	cid "github.com/nspcc-dev/neofs-sdk-go/container/id"
 	"github.com/nspcc-dev/neofs-sdk-go/eacl"
 	"github.com/nspcc-dev/neofs-sdk-go/pool"
@@ -17,7 +19,7 @@ import (
 )
 
 var (
-	walletPath = flag.String("wallets", "", "path to JSON wallets file")
+	walletPath = flag.String("wallet", "", "path to JSON wallets file")
 	walletAddr = flag.String("address", "", "wallets address [optional]")
 	createWallet = flag.Bool("create", false, "create a wallets")
 	password = flag.String("password", "", "wallet password")
@@ -55,14 +57,20 @@ func main() {
 		log.Fatal("couldn't decode containerID")
 	}
 
-	sc := new(session.Container) //new session container for container actions
+	//this doesn't feel correct??
+	pKey := &keys.PrivateKey{PrivateKey: key}
+	//todo: how do you attach a new session to a session Container?
+	sc, err := tokens.BuildContainerSessionToken(pKey, 500, 500, 500, cid.ID{}, session.VerbContainerPut, *pKey.PublicKey())
+	if err != nil {
+		log.Fatal("error creating session token to create a container")
+	}
 
 	//for the time being, this is the same key
 	specifiedTargetRole := eacl.NewTarget()
 	eacl.SetTargetECDSAKeys(specifiedTargetRole, &key.PublicKey)
 
 	var prm pool.PrmContainerSetEACL
-	table, err := AllowKeyPutRead(cnrID, *specifiedTargetRole)
+	table, err := tokens.AllowKeyPutRead(cnrID, *specifiedTargetRole)
 	if err != nil {
 		log.Fatal("couldn't create eacl table", err)
 	}
@@ -85,38 +93,3 @@ func main() {
 	}
 }
 
-//AllowOthersReadOnly from https://github.com/nspcc-dev/neofs-s3-gw/blob/fdc07b8dc15272e2aabcbd7bb8c19e435c94e392/authmate/authmate.go#L358
-func AllowKeyPutRead(cid cid.ID, toWhom eacl.Target) (eacl.Table, error) {
-	table := eacl.Table{}
-	targetOthers := eacl.NewTarget()
-	targetOthers.SetRole(eacl.RoleOthers)
-
-	getAllowRecord := eacl.NewRecord()
-	getAllowRecord.SetOperation(eacl.OperationGet)
-	getAllowRecord.SetAction(eacl.ActionAllow)
-	getAllowRecord.SetTargets(toWhom)
-
-	//getDenyRecord := eacl.NewRecord()
-	//getDenyRecord.SetOperation(eacl.OperationGet)
-	//getDenyRecord.SetAction(eacl.ActionDeny)
-	//getDenyRecord.SetTargets(toWhom)
-
-	putAllowRecord := eacl.NewRecord()
-	putAllowRecord.SetOperation(eacl.OperationPut)
-	putAllowRecord.SetAction(eacl.ActionAllow)
-	putAllowRecord.SetTargets(toWhom)
-
-	//putDenyRecord := eacl.NewRecord()
-	//putDenyRecord.SetOperation(eacl.OperationPut)
-	//putDenyRecord.SetAction(eacl.ActionDeny)
-	//putDenyRecord.SetTargets(toWhom)
-
-	table.SetCID(cid)
-	table.AddRecord(getAllowRecord)
-	table.AddRecord(putAllowRecord)
-	//table.AddRecord(getDenyRecord)
-	//table.AddRecord(putDenyRecord)
-	//table.AddRecord(denyGETRecord)//deny must come first. Commented while debugging
-
-	return table, nil
-}
