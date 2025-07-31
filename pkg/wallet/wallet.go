@@ -22,6 +22,7 @@ import (
 )
 
 type RPC_NETWORK string
+
 const (
 	RPC_TESTNET RPC_NETWORK = "https://rpc.t5.n3.nspcc.ru:20331/"
 	RPC_MAINNET RPC_NETWORK = "https://rpc.t5.n3.nspcc.ru:20331/"
@@ -87,13 +88,15 @@ func UnlockWallet(path, address, password string) (*wallet.Account, error) {
 	}
 	return acc, nil
 }
+
 type Nep17Tokens struct {
-	Asset util.Uint160 `json:"asset"`
-	Amount uint64 `json:"amount""`
-	Symbol string `json:"symbol"`
-	Info wallet.Token `json:"meta"`
-	Error error `json:"error"`
+	Asset  util.Uint160 `json:"asset"`
+	Amount uint64       `json:"amount""`
+	Symbol string       `json:"symbol"`
+	Info   wallet.Token `json:"meta"`
+	Error  error        `json:"error"`
 }
+
 func GetNep17Balances(walletAddress string, network RPC_NETWORK) (map[string]Nep17Tokens, error) {
 	ctx := context.Background()
 	// use endpoint addresses of public RPC nodes, e.g. from https://dora.coz.io/monitor
@@ -139,8 +142,9 @@ func GetNep17Balances(walletAddress string, network RPC_NETWORK) (map[string]Nep
 
 	return tokens, nil
 }
-//TransferToken transfer Nep17 token to another wallets, for instance use address here https://testcdn.fs.neo.org/doc/integrations/endpoints/
-//simple example https://gist.github.com/alexvanin/4f22937b99990243a60b7abf68d7458c
+
+// TransferToken transfer Nep17 token to another wallets, for instance use address here https://testcdn.fs.neo.org/doc/integrations/endpoints/
+// simple example https://gist.github.com/alexvanin/4f22937b99990243a60b7abf68d7458c
 func TransferToken(a *wallet.Account, amount int64, walletTo string, token util.Uint160, network RPC_NETWORK) (string, error) {
 	ctx := context.Background()
 	// use endpoint addresses of public RPC nodes, e.g. from https://dora.coz.io/monitor
@@ -166,11 +170,12 @@ func TransferToken(a *wallet.Account, amount int64, walletTo string, token util.
 	le := txHash.StringLE()
 	return le, err
 }
-//todo ...
+
+// todo ...
 func GenerateMultiSignWalletFromSigners() {
-//	https://github.com/nspcc-dev/neo-go/blob/fdf80dbdc56d5f634908a5f0eb5ada2d9c7565af/docs/notary.md
-//useful read https://github.com/nspcc-dev/neo-go/blob/d5e11e0a75403fc56f48f23c13d25597a5d5f5a5/pkg/wallet/account_test.go#L91
-//https://medium.com/neoresearch/understanding-multisig-on-neo-df9c9c1403b1
+	//	https://github.com/nspcc-dev/neo-go/blob/fdf80dbdc56d5f634908a5f0eb5ada2d9c7565af/docs/notary.md
+	//useful read https://github.com/nspcc-dev/neo-go/blob/d5e11e0a75403fc56f48f23c13d25597a5d5f5a5/pkg/wallet/account_test.go#L91
+	//https://medium.com/neoresearch/understanding-multisig-on-neo-df9c9c1403b1
 	//https://github.com/nspcc-dev/neo-go/blob/d5e11e0a75403fc56f48f23c13d25597a5d5f5a5/pkg/wallet/account.go#L196-L197
 
 	//example public keys
@@ -183,7 +188,7 @@ func GenerateMultiSignWalletFromSigners() {
 	//}
 	//make sure YOUR public key is the first one so you can pay for the transaction
 }
-func GetPeers(ntwk RPC_NETWORK) ([]result.Peer, error){
+func GetPeers(ntwk RPC_NETWORK) ([]result.Peer, error) {
 	ctx := context.Background()
 	// use endpoint addresses of public RPC nodes, e.g. from https://dora.coz.io/monitor
 	cli, err := client.New(ctx, string(ntwk), client.Options{})
@@ -196,7 +201,7 @@ func GetPeers(ntwk RPC_NETWORK) ([]result.Peer, error){
 	return peers.Connected, err
 }
 
-func ConvertScriptHashToAddressString(scriptHash string) (util.Uint160, string, error){
+func ConvertScriptHashToAddressString(scriptHash string) (util.Uint160, string, error) {
 	//contractScriptHash := "185ec84c2694684f1dbd2852c27f004d969653d5"
 	scriptHash = strings.TrimPrefix(scriptHash, "0x")
 	contractAddress, err := util.Uint160DecodeStringLE(scriptHash)
@@ -206,10 +211,11 @@ func ConvertScriptHashToAddressString(scriptHash string) (util.Uint160, string, 
 	return contractAddress, Uint160ToString(contractAddress), nil
 
 }
+
 // CreateTransactionFromFunctionCall creates a transaction to call a function on a smart contract) that still requires executing
 // Before this is ready for sending
 // Consider using https://pkg.go.dev/github.com/nspcc-dev/neo-go/pkg/rpc/client#Client.CreateTxFromScript as an alternative
-func CreateTransactionFromFunctionCall(contractScriptHash string, operation string, network RPC_NETWORK, acc *wallet.Account, params []smartcontract.Parameter) (util.Uint256, *transaction.Transaction, error){
+func CreateTransactionFromFunctionCall(contractScriptHash string, operation string, network RPC_NETWORK, acc *wallet.Account, params []smartcontract.Parameter) (util.Uint256, *transaction.Transaction, error) {
 	ctx := context.Background()
 	// use endpoint addresses of public RPC nodes, e.g. from https://dora.coz.io/monitor
 	cli, err := client.New(ctx, string(network), client.Options{})
@@ -236,7 +242,7 @@ func CreateTransactionFromFunctionCall(contractScriptHash string, operation stri
 
 	//callflag.All could be restricted? Should it be passed in?
 	//operation e.g "symbol" - smart contract function to call.
-	emit.AppCall(script.BinWriter, contractAddress, operation, callflag.All, args...) //call the function (dry run)
+	emit.AppCall(script.BinWriter, contractAddress, operation, callflag.All, args...)
 	tx := transaction.New(script.Bytes(), 0)
 
 	var signers []transaction.Signer
@@ -247,7 +253,7 @@ func CreateTransactionFromFunctionCall(contractScriptHash string, operation stri
 		AllowedGroups:    nil,
 	}
 	signers = append(signers, signer)
-	tx.Signers = signers //do i need to do this?
+	tx.Signers = signers            //do i need to do this?
 	witness := transaction.Witness{ //when/where do we set witnesses?
 		InvocationScript:   script.Bytes(),
 		VerificationScript: acc.GetVerificationScript(),
@@ -265,7 +271,7 @@ func CreateTransactionFromFunctionCall(contractScriptHash string, operation stri
 	}
 	tx.ValidUntilBlock = validUntilBlock
 	fmt.Printf("tstTX %d - %s - %v\r\n", testInvoke.GasConsumed, testInvoke.FaultException, testInvoke.Transaction)
-	systemFee := testInvoke.GasConsumed          //gas consumed invoking contract
+	systemFee := testInvoke.GasConsumed            //gas consumed invoking contract
 	networkFee, err := cli.CalculateNetworkFee(tx) //calculating network networkFee
 	if err != nil {
 		return util.Uint256{}, nil, fmt.Errorf("error calculatng network fee %w\r\n", err)
@@ -337,5 +343,3 @@ func getKeyFromWallet(w *wallet.Wallet, addrStr, password string) (ecdsa.Private
 
 	return acc.PrivateKey().PrivateKey, nil
 }
-
-

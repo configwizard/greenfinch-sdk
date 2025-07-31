@@ -24,11 +24,10 @@ import (
 )
 
 var (
-	walletPath = flag.String("wallet", "", "path to JSON wallets file")
-	walletAddr = flag.String("address", "", "wallets address [optional]")
+	walletPath   = flag.String("wallet", "", "path to JSON wallets file")
+	walletAddr   = flag.String("address", "", "wallets address [optional]")
 	createWallet = flag.Bool("create", false, "create a wallets")
-	password = flag.String("password", "", "wallet password")
-
+	password     = flag.String("password", "", "wallet password")
 )
 
 //integration tests here for reference https://github.com/nspcc-dev/neofs-http-gw/blob/278376643a46db50d6e04cc73d853f30fc1f3708/integration_test.go
@@ -104,7 +103,6 @@ func main() {
 	if err != nil {
 		fmt.Errorf("error retrieving pool %w", err)
 	}
-
 	fmt.Println("pool retrieved")
 	if err := pool.SyncContainerWithNetwork(ctx, &cnr, pl); err != nil {
 		fmt.Errorf("sync container with the network state: %w", err)

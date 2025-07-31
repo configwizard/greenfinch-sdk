@@ -1,0 +1,7 @@
+ERROR
+
+# github.com/configwizard/greenfinch-sdk/pkg/pool
+pkg/pool/pool.go:39:6: prm.SetKey undefined (type "github.com/nspcc-dev/neofs-sdk-go/pool".InitParameters has no field or method SetKey)
+pkg/pool/pool.go:55:30: not enough arguments in call to pl.NetworkInfo
+	have (context.Context)
+	want (context.Context, "github.com/nspcc-dev/neofs-sdk-go/client".PrmNetworkInfo)
